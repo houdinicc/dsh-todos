@@ -1,0 +1,19 @@
+# 待办中心（dsh-todos）—— 本 bundle 贡献的配置层。
+#
+# 只有一段：插入插件自己的 loader 行。
+# `id` 是行标识，profile 的 cordis.patch.yml 可以用它做定向覆盖
+# （改 config，或 `disabled: true` 停用）。注意 `config` 是**整体替换**而非深合并，
+# 覆盖时要把想保留的字段一并写全。
+#
+# 开发期想让宿主半改动热重载，见 dev/cordis.patch.dev.yml ——
+# 那一段刻意不放在这里：它含个人的本机绝对路径，不该随插件分发。
+- insert:
+    - id: todos
+      name: 'dsh-todos'
+      config:
+        # 每周完成目标：仪表盘的进度环与「还差几条」用它。
+        weekGoal: 15
+        # 到点时在 GUI 右下角弹提醒（需要 DSH 开着）。
+        remindEnabled: true
+        # 每日摘要：数据字段已就位，投递逻辑尚未实现，先留 false。
+        dailyDigest: false

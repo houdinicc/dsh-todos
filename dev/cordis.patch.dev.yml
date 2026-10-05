@@ -1,0 +1,25 @@
+# 开发期可选：让宿主半改动热重载（**不要随插件分发**）
+#
+# 背景：宿主半 `lib/*.js` 是被 loader `import` 的 ESM，Node 按 URL 永久缓存模块。
+# `plugin_manager` 的 disable/enable 只会重挂 loader 行，不会重新 import ——
+# 没有下面这段，你每改一行宿主代码都要重启整个 DSH。
+#
+# `@deepseek-ai/dsh-hmr` 的 `root` 是它监视的目录列表。DSH 默认传来的 `root` 是
+# 空的（模块监视关着），而客户端半走的是另一条路（dsh-client-hmr 每 500ms 轮询
+# bundle 的 mtime/ctime/size），本来就是热的、与这段无关。
+#
+# 用法：把下面的内容**追加到你自己的 profile 补丁层**
+#   $DSH_HOME/profiles/<profile>/cordis.patch.yml
+# 并把路径换成你自己的检出目录，然后重启一次 DSH。profile 补丁层的优先级高于
+# bundle 层，所以这段覆盖会稳定生效（DSH 的插件市场给插件写禁用行用的也是这一层）。
+#
+# 为什么不放在插件自己的 cordis.patch.yml 里：那是要分发给别人的文件，
+# 里面写死某个人的本机绝对路径没有意义，还会在别人机器上凭空挂一个监视目录。
+- id: hmr
+  name: '@deepseek-ai/dsh-hmr'
+  config:
+    root:
+      # 保留缺省的 "."（profile 目录），否则会丢掉 DSH 自己的补丁/清单热重载。
+      - '.'
+      # 换成你自己的插件检出目录：
+      - /absolute/path/to/your/dsh-todos-checkout

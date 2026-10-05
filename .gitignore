@@ -1,0 +1,14 @@
+# macOS Finder 垃圾文件
+.DS_Store
+**/.DS_Store
+
+# 依赖与构建产物
+node_modules/
+dist/
+*.tgz
+
+# 凭据：npm token 等同密码，绝不能提交
+.npmrc
+
+# 开发期本机配置（含本机绝对路径，不要提交）
+dev/*.local.yml

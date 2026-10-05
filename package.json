@@ -1,0 +1,66 @@
+{
+  "name": "dsh-todos",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Todoist-style todos with a dashboard, agent tools and due reminders. · 类 Todoist 的待办管理 + 仪表盘，内建 Agent 工具与到期提醒。",
+  "icon": "./icon.svg",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/houdinicc/dsh-todos.git"
+  },
+  "homepage": "https://github.com/houdinicc/dsh-todos#readme",
+  "bugs": {
+    "url": "https://github.com/houdinicc/dsh-todos/issues"
+  },
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "todo",
+    "todoist",
+    "tasks",
+    "dashboard"
+  ],
+  "engines": {
+    "node": ">=20.11",
+    "dsh": ">=0.2.0-rc.1 <0.3.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml",
+    "icon.svg",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/quickadd.mjs && node test/smoke.mjs && node test/tools.mjs && node test/client-render.mjs",
+    "test:quickadd": "node test/quickadd.mjs",
+    "test:host": "node test/smoke.mjs",
+    "test:tools": "node test/tools.mjs",
+    "test:client": "node test/client-render.mjs",
+    "preflight": "node scripts/preflight.mjs",
+    "verify:pack": "node scripts/verify-pack.mjs",
+    "prepack": "node scripts/preflight.mjs"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
