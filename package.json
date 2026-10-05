@@ -1,6 +1,6 @@
 {
   "name": "dsh-todos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Todoist-style todos with a dashboard, agent tools and due reminders. · 类 Todoist 的待办管理 + 仪表盘，内建 Agent 工具与到期提醒。",
   "icon": "./icon.svg",
