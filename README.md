@@ -13,7 +13,7 @@
 ## 安装
 
 **给别人用**：让 TA 打开 设置 → 插件 → **插件市场**，搜 `dsh-todos`（需先装 `dshmarket`），
-或让 TA 的 Agent 执行下面的 `install_bundle`。**完整的三种分发渠道见 [PUBLISHING.md](PUBLISHING.md)。**
+或让 TA 的 Agent 执行下面的 `install_bundle`。**分发渠道与发布踩坑记录不在本仓库内。**
 
 **本机开发安装**：用 `plugin_manager` 工具（或 Web 的 Plugins 页）指向本目录：
 
@@ -41,7 +41,6 @@ package.json          清单：dsh.bundle.patch + dsh.client(platform=web) + exp
 cordis.patch.yml      本 bundle 贡献的配置层（只插入插件行；分发文件，不含本机路径）
 icon.svg              插件卡片图标
 LICENSE               许可证
-PUBLISHING.md         分发指南：npm / git-tarball / 社区目录上架
 locale/{en,zh}.json   插件在 Plugins 页的显示名与描述
 lib/index.js          宿主半入口：apply(ctx, config)
 lib/store.js          数据层：单文件 JSON 持久化 + 规范化 + 迁移钩子

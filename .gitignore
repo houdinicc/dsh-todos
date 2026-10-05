@@ -12,3 +12,8 @@ dist/
 
 # 开发期本机配置（含本机绝对路径，不要提交）
 dev/*.local.yml
+
+# 不公开的内部文档：保留在本地，但不进仓库、也不进 npm 包。
+# 参考 README 与 npm 包里的文件清单（package.json 的 files 白名单）。
+PRD.md
+PUBLISHING.md
