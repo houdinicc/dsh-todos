@@ -33,6 +33,8 @@ const check = (name, ok, detail) => {
 
 // ------------------------------------------------------------ 1. 取 tarball
 
+const localManifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+
 async function resolveTarget() {
   const arg = process.argv[2];
   if (arg !== undefined) {
@@ -45,13 +47,27 @@ async function resolveTarget() {
     }
     return { file: path.resolve(arg), label: path.resolve(arg), downloaded: false };
   }
+
+  // 默认找**与当前 package.json 版本一致**的那份。
+  //
+  // 为什么不能「取 dist/ 里名字最大的」：`pnpm pack` 默认产出到当前目录而不是 dist/，
+  // 于是 dist/ 里可能躺着一份旧版本的包 —— 脚本会静默去验那个旧包，看起来一切通过，
+  // 实际上新包根本没被验过。这个坑真实发生过（0.1.1 发布前验成了 0.1.0）。
+  const expected = `${localManifest.name}-${localManifest.version}.tgz`;
+  const exact = [path.join(root, expected), path.join(root, 'dist', expected)].find((p) => fs.existsSync(p));
+  if (exact !== undefined) return { file: exact, label: exact, downloaded: false };
+
   const dir = path.join(root, 'dist');
-  if (!fs.existsSync(dir)) throw new Error('dist/ 不存在，也没有指定 tarball。先跑 `pnpm pack`。');
-  const candidates = fs.readdirSync(dir).filter((f) => f.endsWith('.tgz'));
-  if (candidates.length === 0) throw new Error('dist/ 里没有 .tgz，先跑 `pnpm pack`。');
-  candidates.sort();
-  const file = path.join(dir, candidates[candidates.length - 1]);
-  return { file, label: file, downloaded: false };
+  const inDist = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.tgz')) : [];
+  const inRoot = fs.readdirSync(root).filter((f) => f.endsWith('.tgz'));
+  const all = [...inRoot, ...inDist];
+  if (all.length === 0) {
+    throw new Error(`没找到 ${expected}，${root} 和 dist/ 里也没有任何 .tgz。先跑 \`pnpm pack\`。`);
+  }
+  throw new Error(
+    `没找到与当前清单版本一致的 ${expected}，但存在其它 tarball：${all.join('、')}。\n`
+    + '  先跑 `pnpm pack` 重新打包，或显式把 tarball 路径作为参数传进来。',
+  );
 }
 
 const target = await resolveTarget();
@@ -70,6 +86,14 @@ if (!fs.existsSync(pkgDir)) throw new Error('tarball 里没有 package/ 目录')
 const manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
 
 // --------------------------------------------------- 3. 清单与文件完整性
+
+// 第一件事就确认「验的确实是当前这一版」——否后面的全部结论都可能是对旧包的结论。
+check(
+  `产物版本与本地清单一致（${manifest.name}@${manifest.version}）`,
+  manifest.version === localManifest.version && manifest.name === localManifest.name,
+  `本地清单是 ${localManifest.name}@${localManifest.version}；`
+  + '验的可能不是刚打包的那份（例如 dist/ 里残留的旧包，或忘了重新 pack）',
+);
 
 const clientRel = manifest.exports?.['./client'];
 const clientPath = typeof clientRel === 'string' ? clientRel : clientRel?.default;
