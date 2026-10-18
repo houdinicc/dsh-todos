@@ -139,6 +139,34 @@ it('todos_list 默认只返回未完成，且支持 view/priority/text 过滤', 
   eq(byText.count, 1, 'text 过滤');
 });
 
+it('todos_list 的 view=completed 单独使用就能返回已完成任务', async () => {
+  // 回归 issue #3：预过滤曾先删掉所有 completed 行，导致 completed 视图恒为空，
+  // 必须额外传一个看似无关的 includeCompleted 才能看到数据。
+  // 自建数据、自行清理，不依赖前面用例留下的状态。
+  const created = await run('todos_create', {
+    items: [{ title: '已完成视图回归任务' }, { title: '未完成视图回归任务' }],
+  });
+  const doneId = created.created[0].id;
+  await run('todos_complete', { ids: [doneId] });
+
+  const completedView = await run('todos_list', { view: 'completed' });
+  eq(completedView.count, 1, 'completed 视图应返回那一个已完成任务');
+  eq(completedView.tasks[0].id, doneId, 'completed 视图返回的是它');
+  assert.ok(completedView.tasks.every((t) => t.completed), 'completed 视图只含已完成');
+
+  // 显式传 includeCompleted 也应得到同样结果（两条路径不再矛盾）
+  const both = await run('todos_list', { view: 'completed', includeCompleted: true });
+  eq(both.count, 1, 'completed + includeCompleted 口径一致');
+
+  // 其他视图不受影响
+  const active = await run('todos_list', { view: 'active' });
+  assert.ok(active.tasks.every((t) => !t.completed), 'active 视图不含已完成');
+  assert.ok(!active.tasks.some((t) => t.id === doneId), 'active 视图不含刚完成那条');
+
+  // 清理，避免影响后续用例
+  await run('todos_delete', { ids: created.created.map((t) => t.id), permanent: true });
+});
+
 it('todos_list 的 limit 生效并如实报告 total', async () => {
   const result = await run('todos_list', { limit: 2 });
   assert.ok(result.count <= 2, 'count 受 limit 限制');

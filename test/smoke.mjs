@@ -330,6 +330,10 @@ await test('快速添加空输入被拒', async () => {
 });
 
 await test('到点提醒：逾期与今天已到点的任务会被列出，未来任务不会', async () => {
+  // 前面的「设置更新与规范化」用例把 remindEnabled 关掉了，这里先显式打开，
+  // 避免用例之间靠执行顺序隐式传递状态。
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { remindEnabled: true });
+
   const overdue = await call(routes, 'POST', '/api/dsh-todos/tasks/create', {
     title: '昨天就该做的事',
     dueDate: addDays(localDateKey(), -1),
@@ -349,6 +353,13 @@ await test('到点提醒：逾期与今天已到点的任务会被列出，未�
   const first = due.body.value.items.find((t) => t.title === '昨天就该做的事');
   assert.equal(first.overdue, true);
   assert.equal(first.overdueDays, 1);
+
+  // 关掉「到期提醒」后必须一条都不返回 —— 否则这个开关等于装饰（issue #2）。
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { remindEnabled: false });
+  const off = await call(routes, 'GET', '/api/dsh-todos/due');
+  assert.equal(off.statusCode, 200);
+  assert.equal(off.body.value.items.length, 0, 'remindEnabled=false 时不应返回任何提醒');
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { remindEnabled: true });
 
   // 完成之后不再提醒
   const snap = await call(routes, 'GET', '/api/dsh-todos/snapshot');
