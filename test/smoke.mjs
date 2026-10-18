@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createStore, localDateKey, addDays } from '../lib/store.js';
-import { createRoutes } from '../lib/routes.js';
+import { createAuthorize, createRoutes } from '../lib/routes.js';
 import { computeStats, deriveCounts } from '../lib/select.js';
 
 // ------------------------------------------------------------------ 测试替身
@@ -102,6 +102,106 @@ await test('cross-site 请求被拒绝（403）', async () => {
     headers: { 'sec-fetch-site': 'cross-site' },
   });
   assert.equal(res.statusCode, 403);
+});
+
+// ---------------------------------------------- 准入委派给官方 connection（issue #1）
+//
+// 这些用例把 `authorize` 换成受控的假 connection，验证：
+// 委托生效、401/403 如实透传、服务缺席与抛异常都回退到纯回环判定（不崩、不放行）。
+
+function routesWithAuthorize(connection) {
+  return createRoutes(store, { authorize: createAuthorize(() => connection) });
+}
+
+await test('准入：官方放行时，公网 Host 的转发请求也可以通过', async () => {
+  const forwarded = routesWithAuthorize({ requestRejection: () => undefined });
+  // 非回环 socket + 非回环 Host：纯回环判定会拒，官方放行则应放行。
+  const res = await call(forwarded, 'GET', '/api/dsh-todos/snapshot', undefined, {
+    remote: '10.0.0.7',
+    host: 'deploy.example.com:3080',
+  });
+  assert.equal(res.statusCode, 200, '委托后应放行');
+  assert.ok(res.body.value.tasks !== undefined);
+});
+
+await test('准入：官方返回 401 时透传 401 unauthorized 信封', async () => {
+  const guarded = routesWithAuthorize({ requestRejection: () => 401 });
+  const res = await call(guarded, 'GET', '/api/dsh-todos/snapshot');
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.body.error.code, 'unauthorized');
+});
+
+await test('准入：官方返回 403 时透传 403 forbidden 信封', async () => {
+  const guarded = routesWithAuthorize({ requestRejection: () => 403 });
+  const res = await call(guarded, 'GET', '/api/dsh-todos/snapshot');
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.error.code, 'forbidden');
+});
+
+await test('准入：connection 服务缺席时回退纯回环判定', async () => {
+  const fallback = routesWithAuthorize(undefined);
+  const local = await call(fallback, 'GET', '/api/dsh-todos/snapshot');
+  assert.equal(local.statusCode, 200, '本机回环仍应放行');
+  const remote = await call(fallback, 'GET', '/api/dsh-todos/snapshot', undefined, { remote: '10.0.0.7' });
+  assert.equal(remote.statusCode, 403, '非回环仍应拒绝');
+});
+
+await test('准入：requestRejection 抛异常时回退纯回环判定且不崩', async () => {
+  const broken = routesWithAuthorize({
+    requestRejection() {
+      throw new Error('connection service is broken');
+    },
+  });
+  const local = await call(broken, 'GET', '/api/dsh-todos/snapshot');
+  assert.equal(local.statusCode, 200, '服务抛异常不应让面板整体不可用');
+  const remote = await call(broken, 'GET', '/api/dsh-todos/snapshot', undefined, { remote: '10.0.0.7' });
+  assert.equal(remote.statusCode, 403, '回退后仍须拒绝非回环');
+});
+
+await test('准入：取 connection 本身抛异常时也回退，不崩', async () => {
+  const routes2 = createRoutes(store, {
+    authorize: createAuthorize(() => {
+      throw new Error('ctx.get exploded');
+    }),
+  });
+  const res = await call(routes2, 'GET', '/api/dsh-todos/snapshot');
+  assert.equal(res.statusCode, 200, '本机回环应放行');
+});
+
+await test('准入：放行之后方法校验与业务逻辑照常生效', async () => {
+  const open = routesWithAuthorize({ requestRejection: () => undefined });
+  const wrongMethod = await call(open, 'POST', '/api/dsh-todos/snapshot', {});
+  assert.equal(wrongMethod.statusCode, 405, '放行不等于跳过方法校验');
+  const created = await call(open, 'POST', '/api/dsh-todos/tasks/create', { title: '准入放行后仍能写入' });
+  assert.equal(created.statusCode, 200);
+  // 自行清理，避免影响后续依赖固定任务数的用例。
+  const ids = created.body.value.created.map((t) => t.id);
+  await call(routes, 'POST', '/api/dsh-todos/tasks/purge', { ids });
+});
+
+await test('准入：被拒绝的请求不会落库', async () => {
+  const before = (await call(routes, 'GET', '/api/dsh-todos/snapshot')).body.value.tasks.length;
+  const denied = routesWithAuthorize({ requestRejection: () => 401 });
+  await call(denied, 'POST', '/api/dsh-todos/tasks/create', { title: '不该被写入的任务' });
+  const after = (await call(routes, 'GET', '/api/dsh-todos/snapshot')).body.value.tasks.length;
+  assert.equal(after, before, '被拒请求不应改变数据');
+});
+
+await test('准入：官方返回意料之外的值时按拒绝处理，不静默放行', async () => {
+  // 官方契约是 401 | 403 | undefined。若未来语义变化，安全默认必须是拒绝。
+  for (const weird of [true, 'allow', 0, null]) {
+    const routes2 = routesWithAuthorize({ requestRejection: () => weird });
+    const remote = await call(routes2, 'GET', '/api/dsh-todos/snapshot', undefined, { remote: '10.0.0.7' });
+    assert.equal(remote.statusCode, 403, `返回值 ${JSON.stringify(weird)} 不应放行非回环请求`);
+    const local = await call(routes2, 'GET', '/api/dsh-todos/snapshot');
+    assert.equal(local.statusCode, 200, '回退后本机回环仍应可用');
+  }
+});
+
+await test('准入：导出路由同样受委托约束', async () => {
+  const guarded = routesWithAuthorize({ requestRejection: () => 401 });
+  const res = await call(guarded, 'GET', '/api/dsh-todos/export/download');
+  assert.equal(res.statusCode, 401, '独立围栏的导出路由也必须委托');
 });
 
 await test('方法不匹配返回 405 且带 Allow', async () => {

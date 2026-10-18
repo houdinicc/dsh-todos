@@ -88,6 +88,21 @@ rename」的原子替换，读坏时先备份现场再重开。单文件让「�
   `--dsw-alias-button-primary-fill` + `--dsw-alias-label-primary-foreground` 就是宿主
   主按钮的固定搭配），照抄它的 token 组合最稳。
 
+**准入交给官方 `connection`，而不是自己写第二份信任判定。** 本插件的路由注册为
+`exact`，在路由表里**先于** `dsh-client-connection` 那条 `/api` prefix 匹配，所以
+官方鉴权不会自动落到这里 —— 必须显式委托 `connection.requestRejection()`：它把
+Connection 的 Host/Origin 检查**连同浏览器会话鉴权**应用到别的 Web 路由上，与官方
+`/api` 同一套口径。这样「浏览器 → 转发/反向代理 → 回环 server」的部署也能用。
+
+行为变化（有意的）：**回环请求不再免鉴权**，与官方 `/api` 一致。浏览器请求天然带
+会话 cookie，无感；本机裸 `curl` 读这些路由会得到 `401 需要已登录的浏览器会话`。
+这比「只校验 Host」更正确 —— 这些路由在官方鉴权之外，只信 Host 等于把待办库
+（可读、可写、可删除）无鉴权暴露给任何能访问该端口的人。
+
+回退：`connection` 缺席、`requestRejection()` 抛异常、或返回意料之外的值时，一律
+退回原来的纯回环判定 —— 宁可用旧的（更严的）姿态，也不要因为鉴权服务故障把面板
+打死，更不能静默放行。
+
 ## 开发
 
 客户端半（`lib/client.js`）**天生是热的**：`dsh-client-hmr` 每 500ms 轮询每个 bundle 的
