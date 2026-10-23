@@ -538,6 +538,41 @@ if (dashButton !== undefined) {
   check('仪表盘渲染出范围切换', dash.includes('近 30 天'));
   check('仪表盘渲染出洞察列表', dash.includes('本周洞察'));
   check('洞察里出现了逾期洞察', dash.includes('逾期'));
+
+  // ---------------------------------- 时间范围：选中态（橙色、唯一、跟随点击）
+  const rangeButtons = [...document.querySelectorAll('button.dsht-range')];
+  check('范围选择器是四个按钮', rangeButtons.length === 4);
+  const activeRange = rangeButtons.filter((b) => b.classList.contains('is-active'));
+  check('恰好一个范围处于选中态', activeRange.length === 1);
+  check('选中态默认是「近 30 天」', activeRange[0]?.textContent.trim() === '近 30 天');
+  check('选中项的 aria-pressed 为 true',
+    activeRange[0]?.getAttribute('aria-pressed') === 'true'
+    && rangeButtons.filter((b) => b !== activeRange[0]).every((b) => b.getAttribute('aria-pressed') === 'false'));
+
+  // 选中态必须是橙色（amber-500），不是只改文字色 —— 那正是原先「看不出选中」的原因
+  const dashStyle = document.querySelector('style[data-plugin-css="dsh-todos"]').textContent;
+  const activeRule = dashStyle.match(/\.dsht-range\.is-active\{([^}]*)\}/);
+  check('选中态规则存在', activeRule != null);
+  check('选中态是橙色（state-warn-primary = amber-500）',
+    /background:var\(--dsw-alias-state-warn-primary\)/.test(activeRule?.[1] ?? ''));
+  check('选中态前景色用主按钮那一对，保证对比度',
+    /color:var\(--dsw-alias-label-primary-foreground\)/.test(activeRule?.[1] ?? ''));
+  check('选中态加粗', /font-weight:600/.test(activeRule?.[1] ?? ''));
+
+  // 点另一个范围：选中态应转移
+  const weekButton = rangeButtons.find((b) => b.textContent.trim() === '本周');
+  if (weekButton !== undefined) {
+    const beforeRange = fetchCalls.length;
+    await click(weekButton);
+    const afterActive = [...document.querySelectorAll('button.dsht-range.is-active')];
+    check('点击后选中态转移到被点的范围',
+      afterActive.length === 1 && afterActive[0]?.textContent.trim() === '本周');
+    check('切换范围会重新拉统计',
+      fetchCalls.slice(beforeRange).some((c) => c.url.includes('/stats')));
+    // 切回默认，避免影响后续设置页断言
+    const back = [...document.querySelectorAll('button.dsht-range')].find((b) => b.textContent.trim() === '近 30 天');
+    if (back !== undefined) await click(back);
+  }
 }
 
 // 设置
