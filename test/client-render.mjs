@@ -326,7 +326,10 @@ check('备注在列表里被裁到 3 行', /-webkit-line-clamp:\s*3/.test(
 
 const detailButton = [...document.querySelectorAll('button.dsht-task-detail')]
   .find((b) => b.closest('.dsht-task')?.textContent.includes('交季度报告'));
-check('长备注任务出现「详情」按钮', detailButton !== undefined && detailButton.textContent.trim() === '详情');
+check('长备注任务出现「详情」按钮', detailButton !== undefined);
+check('「详情」按钮是纯图标（无文字）',
+  detailButton?.querySelector('svg') != null && detailButton?.textContent.trim() === '');
+check('「详情」按钮的可访问名仍是文案', detailButton?.getAttribute('aria-label') === '详情');
 
 // 无备注任务不该有详情按钮（避免噪音）
 const noNoteRow = [...document.querySelectorAll('.dsht-task')].find((row) => row.textContent.includes('预约体检'));
