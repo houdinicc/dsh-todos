@@ -308,6 +308,18 @@ const click = async (element) => {
   await settle();
 };
 
+// 按「选择器列表里的某一项」取 CSS 规则体。合并选择器（.a,.b{...}）也能取到，
+// 比直接正则匹配整条选择器更耐改。
+const cssRule = (selector) => {
+  const styleText = document.querySelector('style[data-plugin-css="dsh-todos"]')
+    .textContent.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const m of styleText.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    if (m[1].split(',').some((s) => s.trim() === selector)) return m[2];
+  }
+  return null;
+};
+
+
 
 check('渲染出当前视图名「今天」', html().includes('今天'));
 
@@ -437,6 +449,28 @@ if (editButton !== undefined) {
   check('编辑弹层里标题与备注都可用多行输入（>=2 个 textarea）',
     document.querySelectorAll('.dsht-editor textarea').length >= 2);
 
+  // ---------------------------------- 编辑器标签选择：同样用橙色选中态
+  const labelChip = [...document.querySelectorAll('.dsht-editor button.dsht-chip')]
+    .find((b) => b.textContent.trim() === '@写作');
+  check('编辑器里渲染出标签选项', labelChip !== undefined);
+  check('已关联的标签默认是选中态（is-selected）',
+    labelChip?.classList.contains('is-selected') === true
+    && labelChip?.getAttribute('aria-pressed') === 'true');
+  const chipRule = cssRule('.dsht-chip.is-selected');
+  check('标签选中态与范围选择器共用橙色规则',
+    /background:var\(--dsw-alias-state-warn-primary\)/.test(chipRule ?? ''));
+  if (labelChip !== undefined) {
+    await click(labelChip);
+    const after = [...document.querySelectorAll('.dsht-editor button.dsht-chip')]
+      .find((b) => b.textContent.trim() === '@写作');
+    check('点一下取消选中（is-selected 移除、aria-pressed=false）',
+      after?.classList.contains('is-selected') === false && after?.getAttribute('aria-pressed') === 'false');
+    await click(after);
+    const back2 = [...document.querySelectorAll('.dsht-editor button.dsht-chip')]
+      .find((b) => b.textContent.trim() === '@写作');
+    check('再点一下恢复选中', back2?.classList.contains('is-selected') === true);
+  }
+
   // 粘入很长的标题：值要完整保留（不能像单行 input 那样只能显示一行）
   const LONG = '完整的工作流程——从简报到伪装 brief → plugin → direction → design system → artifact → handoff';
   if (titleField == null) {
@@ -550,14 +584,13 @@ if (dashButton !== undefined) {
     && rangeButtons.filter((b) => b !== activeRange[0]).every((b) => b.getAttribute('aria-pressed') === 'false'));
 
   // 选中态必须是橙色（amber-500），不是只改文字色 —— 那正是原先「看不出选中」的原因
-  const dashStyle = document.querySelector('style[data-plugin-css="dsh-todos"]').textContent;
-  const activeRule = dashStyle.match(/\.dsht-range\.is-active\{([^}]*)\}/);
+  const activeRule = cssRule('.dsht-range.is-active');
   check('选中态规则存在', activeRule != null);
   check('选中态是橙色（state-warn-primary = amber-500）',
-    /background:var\(--dsw-alias-state-warn-primary\)/.test(activeRule?.[1] ?? ''));
+    /background:var\(--dsw-alias-state-warn-primary\)/.test(activeRule ?? ''));
   check('选中态前景色用主按钮那一对，保证对比度',
-    /color:var\(--dsw-alias-label-primary-foreground\)/.test(activeRule?.[1] ?? ''));
-  check('选中态加粗', /font-weight:600/.test(activeRule?.[1] ?? ''));
+    /color:var\(--dsw-alias-label-primary-foreground\)/.test(activeRule ?? ''));
+  check('选中态加粗', /font-weight:600/.test(activeRule ?? ''));
 
   // 点另一个范围：选中态应转移
   const weekButton = rangeButtons.find((b) => b.textContent.trim() === '本周');
