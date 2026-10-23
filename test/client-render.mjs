@@ -210,7 +210,14 @@ const FIXTURE = {
     task({
       id: 't1',
       title: '交季度报告',
-      note: '附上三季度数据',
+      // 多行长备注：列表里应被裁到 3 行，并因此出现「详情」按钮。
+      note: [
+        '附上三季度数据',
+        '第二行：同比与环比拆解',
+        '第三行：渠道结构变化',
+        '第四行：风险与对策',
+        '第五行：下季度目标',
+      ].join('\n'),
       projectId: 'p1',
       labelIds: ['l1'],
       priority: 'p1',
@@ -311,6 +318,52 @@ check('渲染出标签', html().includes('@写作'));
 check('渲染出到期时间', html().includes('今天 15:00'));
 check('无渲染期崩溃日志', warns.length === 0);
 check('确实调用了宿主快照路由', fetchCalls.some((c) => c.url.includes('/snapshot')));
+
+// ---------------------------------------------------- 备注裁剪 + 详情弹层
+check('备注在列表里被裁到 3 行', /-webkit-line-clamp:\s*3/.test(
+  document.querySelector('style[data-plugin-css="dsh-todos"]').textContent,
+));
+
+const detailButton = [...document.querySelectorAll('button.dsht-task-detail')]
+  .find((b) => b.closest('.dsht-task')?.textContent.includes('交季度报告'));
+check('长备注任务出现「详情」按钮', detailButton !== undefined && detailButton.textContent.trim() === '详情');
+
+// 无备注任务不该有详情按钮（避免噪音）
+const noNoteRow = [...document.querySelectorAll('.dsht-task')].find((row) => row.textContent.includes('预约体检'));
+check('无备注任务不出现「详情」按钮',
+  [...document.querySelectorAll('button.dsht-task-detail')]
+    .every((b) => !b.closest('.dsht-task')?.textContent.includes('预约体检')));
+
+// 列表里只显示裁切后的可见文本，完整内容不在 DOM 文本里被展开？
+// （HTML 里仍含全文，但 CSS 裁切；这里断言弹层打开前没有 .dsht-sheet）
+check('默认不渲染详情弹层', document.querySelector('.dsht-sheet') === null);
+
+if (detailButton !== undefined) {
+  await click(detailButton);
+  const sheet = document.querySelector('.dsht-sheet');
+  check('点击详情打开弹层', sheet !== null);
+  check('弹层标题是任务标题', sheet?.querySelector('.dsht-sheet-title')?.textContent === '交季度报告');
+  check('弹层展示完整备注（含最后一行）', sheet?.querySelector('.dsht-sheet-note')?.textContent.includes('第五行：下季度目标'));
+  check('弹层带项目/标签等元信息', sheet?.textContent.includes('Q4汇报') && sheet?.textContent.includes('@写作'));
+
+  // Escape 关闭
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  await settle();
+  check('按 Escape 关闭弹层', document.querySelector('.dsht-sheet') === null);
+
+  // 再打开后点遮罩关闭
+  await click(detailButton);
+  const backdrop = document.querySelector('.dsht-sheet');
+  if (backdrop !== null) {
+    await act(async () => {
+      backdrop.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    await settle();
+  }
+  check('点遮罩关闭弹层', document.querySelector('.dsht-sheet') === null);
+}
 
 // 收件箱：无日期任务 + 子任务缩进
 const inboxButton = findButton('收件箱');
