@@ -331,6 +331,19 @@ check('「详情」按钮是纯图标（无文字）',
   detailButton?.querySelector('svg') != null && detailButton?.textContent.trim() === '');
 check('「详情」按钮的可访问名仍是文案', detailButton?.getAttribute('aria-label') === '详情');
 
+// 需求：hover 到行上时四个按钮同时出现、且等距 —— 它们必须在同一个操作容器里，
+// 否则详情按钮会落在 .dsht-task 的 gap 里，与其它三个间距不一致。
+const rowWithNote = detailButton?.closest('.dsht-task');
+const rowActions = rowWithNote?.querySelector('.dsht-task-actions');
+const styleText = document.querySelector('style[data-plugin-css="dsh-todos"]').textContent;
+check('详情按钮与其它操作同属一个容器', detailButton?.parentElement === rowActions);
+check('长备注行的操作区正好四个按钮', rowActions?.querySelectorAll('button').length === 4);
+check('操作区默认 opacity:0（不占视觉）', /\.dsht-task-actions\{[^}]*opacity:0/.test(styleText));
+check('hover 到行时四个按钮一起显示',
+  /\.dsht-task:hover \.dsht-task-actions[^}]*opacity:1/.test(styleText)
+  || /\.dsht-task:focus-within \.dsht-task-actions[^}]*opacity:1/.test(styleText));
+check('四个按钮等距（gap:4px）', /\.dsht-task-actions\{[^}]*gap:4px/.test(styleText));
+
 // 无备注任务不该有详情按钮（避免噪音）
 const noNoteRow = [...document.querySelectorAll('.dsht-task')].find((row) => row.textContent.includes('预约体检'));
 check('无备注任务不出现「详情」按钮',
