@@ -299,7 +299,7 @@ await act(async () => {
 await settle();
 
 const html = () => document.getElementById('root').innerHTML;
-const buttons = () => [...document.querySelectorAll('button.dsht-navrow')];
+const buttons = () => [...document.querySelectorAll('button.dsht-navbtn')];
 const findButton = (text) => buttons().find((b) => b.textContent.includes(text));
 const click = async (element) => {
   await act(async () => {
@@ -310,6 +310,33 @@ const click = async (element) => {
 
 
 check('渲染出当前视图名「今天」', html().includes('今天'));
+
+// ------------------------------------------------- 侧边栏视图行（等高 / 图标 / 对齐）
+const navStyle = document.querySelector('style[data-plugin-css="dsh-todos"]').textContent;
+// 逐个视图项检查：每一项的行里都要有图标（不是只数总数）。
+const VIEW_LABELS = ['今天', '即将到来', '收件箱', '仪表盘', '已完成', '回收站'];
+const viewRows = [...document.querySelectorAll('.dsht-navrow')].filter((row) =>
+  VIEW_LABELS.some((label) => row.textContent.includes(label)),
+);
+check('六个视图项都渲染出来了', viewRows.length === 6);
+check('每个视图行都有图标',
+  viewRows.length === 6 && viewRows.every((row) => row.querySelector('.dsht-navrow-icon svg') != null));
+// 「新建项目」那个按钮本身就带 dsht-navrow（合法），这里只断言行内不再嵌套同类按钮。
+// 徽标在点击区内：点数字也应切视图（点操作按钮才有 stopPropagation）。
+const inboxRowBadge = [...document.querySelectorAll('.dsht-navrow')]
+  .map((row) => row.querySelector('.dsht-navrow-count'))
+  .find((badge) => badge != null);
+check('数字徽标位于点击区内', inboxRowBadge?.closest('button.dsht-navbtn') != null);
+check('行内点击区不再复用行类（避免 padding/hover 叠加）',
+  document.querySelectorAll('.dsht-navrow button.dsht-navrow').length === 0
+  && document.querySelectorAll('button.dsht-navbtn').length >= 6);
+check('视图行等高（min-height:32px）', /\.dsht-navrow\{[^}]*min-height:32px/.test(navStyle));
+check('行内边距只在行上，不在点击区', /\.dsht-navbtn\{[^}]*padding:0/.test(navStyle));
+check('数字徽标等宽右对齐', /\.dsht-navrow-count\{[^}]*min-width:18px[^}]*text-align:right/.test(navStyle)
+  && /\.dsht-navrow-count\{[^}]*tabular-nums/.test(navStyle));
+check('分组间距统一（首个分组不额外加高）',
+  /\.dsht-sidegroup\{[^}]*margin:14px 8px 4px/.test(navStyle)
+  && /\.dsht-side>\.dsht-sidegroup:first-child\{[^}]*margin-top:2px/.test(navStyle));
 check('渲染出今日任务标题', html().includes('交季度报告'));
 check('今日视图不含无日期任务（口径正确）', !html().includes('预约体检'));
 check('渲染出备注', html().includes('附上三季度数据'));
