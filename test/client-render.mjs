@@ -408,6 +408,61 @@ if (detailButton !== undefined) {
   check('点遮罩关闭弹层', document.querySelector('.dsht-sheet') === null);
 }
 
+// ------------------------------------------- 编辑弹层：标题是多行输入（可滚动）
+const editorStyle = document.querySelector('style[data-plugin-css="dsh-todos"]').textContent;
+check('多行输入样式存在', /\.dsht-textarea\{[^}]*overflow-y:auto/.test(editorStyle));
+check('多行输入有高度上限与可拖拽高度',
+  /\.dsht-textarea\{[^}]*max-height:200px/.test(editorStyle)
+  && /\.dsht-textarea\{[^}]*resize:vertical/.test(editorStyle));
+
+const editRow = [...document.querySelectorAll('.dsht-task')]
+  .find((row) => row.textContent.includes('交季度报告'));
+const editButton = [...(editRow?.querySelectorAll('button') ?? [])]
+  .find((b) => b.getAttribute('aria-label') === '编辑');
+check('存在编辑按钮', editButton !== undefined);
+
+if (editButton !== undefined) {
+  await click(editButton);
+  // 按字段定位：第一个 label.dsht-field 就是标题（不是抓编辑器里第一个 textarea ——
+  // 那样会命中下面的备注框，标题改回单行 input 也能「通过」，是假绿）。
+  const titleField = document.querySelector('.dsht-editor label.dsht-field')?.querySelector('textarea');
+  check('编辑弹层的标题是多行 textarea（不是单行 input）',
+    titleField != null && titleField.tagName === 'TEXTAREA');
+  check('标题框给足行数（rows>=3）', Number(titleField?.getAttribute('rows') ?? 0) >= 3);
+  check('标题框使用多行样式类', titleField?.classList.contains('dsht-textarea') === true);
+  check('标题框回填了完整标题', titleField?.value === '交季度报告');
+  // 编辑器里第一个字段是标题（子任务输入框仍是单行 input，那是另一回事）
+  check('标题字段所在的那一格是 textarea',
+    document.querySelector('.dsht-editor label.dsht-field')?.querySelector('textarea') != null);
+  check('编辑弹层里标题与备注都可用多行输入（>=2 个 textarea）',
+    document.querySelectorAll('.dsht-editor textarea').length >= 2);
+
+  // 粘入很长的标题：值要完整保留（不能像单行 input 那样只能显示一行）
+  const LONG = '完整的工作流程——从简报到伪装 brief → plugin → direction → design system → artifact → handoff';
+  if (titleField == null) {
+    check('（跳过）标题不是多行输入，无法验证长文本与回车保存', false);
+  } else {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(titleField, LONG);
+    titleField.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  await settle();
+  check('长标题完整进入字段值',
+    document.querySelector('.dsht-editor label.dsht-field')?.querySelector('textarea')?.value === LONG);
+
+  // 回车保存（Shift+回车才是换行）
+  const beforeSave = fetchCalls.length;
+  await act(async () => {
+    titleField?.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  await settle();
+  const updateCall = fetchCalls.slice(beforeSave).find((c) => c.url.includes('/tasks/update'));
+  check('标题框回车即保存（发出 /tasks/update）', updateCall !== undefined);
+  check('保存后编辑弹层关闭', document.querySelector('.dsht-editor') === null);
+  }
+}
+
 // 收件箱：无日期任务 + 子任务缩进
 const inboxButton = findButton('收件箱');
 check('存在「收件箱」导航项', inboxButton !== undefined);
