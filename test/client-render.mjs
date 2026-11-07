@@ -164,6 +164,30 @@ check(
 );
 if (unknownTokens.length > 0) console.error('  引用但不存在的 token：', unknownTokens.join(', '));
 
+// **i18n 护栏**：代码里 `t('key')` 引用的键必须在 zh / en 两个字典里都存在。
+// 这条缺口真实漏过一次（`nav.projects` 只在「项目被删后仍在看该视图」这个边界上触发，
+// 界面上会显示原始键名），而当时 101 条断言全绿。
+const zhBlock = clientSource.slice(clientSource.indexOf('    const zh = {'), clientSource.indexOf('    const en = {'));
+const enBlock = clientSource.slice(clientSource.indexOf('    const en = {'), clientSource.indexOf('    const api = {'));
+const zhKeys = new Set([...zhBlock.matchAll(/^\s+'([\w.]+)':/gm)].map((m) => m[1]));
+const enKeys = new Set([...enBlock.matchAll(/^\s+'([\w.]+)':/gm)].map((m) => m[1]));
+// 只认字面量键；动态键（t(`range.${key}`)）无法静态校验，跳过。
+const literalKeys = new Set([...clientSource.matchAll(/(?<![\w.$])t\(['"]([\w.]+)['"]/g)].map((m) => m[1]));
+const missingZh = [...literalKeys].filter((k) => !zhKeys.has(k)).sort();
+const missingEn = [...literalKeys].filter((k) => !enKeys.has(k)).sort();
+const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k)).sort();
+const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort();
+
+// 先确认解析本身没失效，否则下面三条会「因为读到 0 个键」而空转通过。
+check(`i18n 字典解析正常（zh ${zhKeys.size} / en ${enKeys.size}，引用 ${literalKeys.size}）`,
+  zhKeys.size > 100 && enKeys.size > 100 && literalKeys.size > 50);
+check('代码引用的 i18n 键在 zh 字典里都存在', missingZh.length === 0);
+check('代码引用的 i18n 键在 en 字典里都存在', missingEn.length === 0);
+check('中英字典键完全对齐', onlyZh.length === 0 && onlyEn.length === 0);
+if (missingZh.length > 0) console.error('  zh 缺键：', missingZh.join(', '));
+if (missingEn.length > 0) console.error('  en 缺键：', missingEn.join(', '));
+if (onlyZh.length + onlyEn.length > 0) console.error('  仅一侧有：', [...onlyZh, ...onlyEn].join(', '));
+
 // ------------------------------------------------- 5. 假 fetch / 假数据
 const TODAY = '2026-10-04';
 
@@ -203,7 +227,7 @@ const FIXTURE = {
   today: TODAY,
   serverTime: `${TODAY}T01:00:00.000Z`,
   dataFile: '/tmp/todos.json',
-  settings: { weekGoal: 15, remindEnabled: true, dailyDigest: false, digestTime: '09:00', defaultRemindLead: 0, weekStartsOn: 0 },
+  settings: { weekGoal: 15, remindEnabled: true, defaultRemindLead: 0, weekStartsOn: 0 },
   projects: [{ id: 'p1', name: 'Q4汇报', color: null, order: 0, archived: false, createdAt: TODAY }],
   labels: [{ id: 'l1', name: '写作', color: null, order: 0, createdAt: TODAY }],
   tasks: [
@@ -616,6 +640,18 @@ if (settingsButton !== undefined) {
   const settings = html();
   check('设置页渲染出每周目标', settings.includes('每周完成目标'));
   check('设置页渲染出提醒开关', settings.includes('到期提醒') && settings.includes('role="switch"'));
+  // 方向 1：这两项以前是死配置，现在要能在设置页看到并生效
+  check('设置页渲染出「提前提醒」控件',
+    settings.includes('提前提醒') && document.querySelector('#dsht-lead') !== null);
+  check('提前提醒是数字输入且限幅',
+    document.querySelector('#dsht-lead')?.getAttribute('type') === 'number'
+    && document.querySelector('#dsht-lead')?.getAttribute('min') === '0');
+  check('设置页渲染出「每周起始日」控件',
+    settings.includes('每周起始日') && document.querySelector('#dsht-weekstart') !== null);
+  check('周起始是周一周日两个选项',
+    [...(document.querySelectorAll('#dsht-weekstart option') ?? [])]
+      .map((o) => o.value).join(',') === '0,1');
+  check('设置页不再出现每日摘要字段', !settings.includes('每日摘要'));
   check('设置页渲染出导出链接', settings.includes('/export/download') && settings.includes('/export/markdown'));
   check('设置页渲染出导入控件', settings.includes('导入 JSON'));
   check('设置页显示数据文件路径', settings.includes('/tmp/todos.json'));

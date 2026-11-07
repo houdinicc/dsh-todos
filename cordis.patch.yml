@@ -15,5 +15,7 @@
         weekGoal: 15
         # 到点时在 GUI 右下角弹提醒（需要 DSH 开着）。
         remindEnabled: true
-        # 每日摘要：数据字段已就位，投递逻辑尚未实现，先留 false。
-        dailyDigest: false
+        # 提醒提前量（分钟）：0 = 到点才提醒，10 = 提前 10 分钟。
+        defaultRemindLead: 0
+        # 周起始：0 = 周一，1 = 周日。影响仪表盘「本周」范围。
+        weekStartsOn: 0

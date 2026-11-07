@@ -14,7 +14,8 @@ import path from 'node:path';
 
 import { createStore, localDateKey, addDays } from '../lib/store.js';
 import { createAuthorize, createRoutes } from '../lib/routes.js';
-import { computeStats, deriveCounts } from '../lib/select.js';
+import { computeStats, deriveCounts, resolveRange } from '../lib/select.js';
+import { dueNotifications } from '../lib/remind.js';
 
 // ------------------------------------------------------------------ 测试替身
 
@@ -368,8 +369,78 @@ await test('设置更新与规范化', async () => {
   const res = await call(routes, 'POST', '/api/dsh-todos/settings/update', { weekGoal: 999, remindEnabled: false });
   assert.equal(res.body.value.weekGoal, 999);
   assert.equal(res.body.value.remindEnabled, false);
-  const bad = await call(routes, 'POST', '/api/dsh-todos/settings/update', { digestTime: '99:99' });
-  assert.equal(bad.body.value.digestTime, '09:00');
+  // 已删除的每日摘要字段不应再出现在设置里
+  assert.equal('dailyDigest' in res.body.value, false, 'dailyDigest 已从数据模型移除');
+  assert.equal('digestTime' in res.body.value, false, 'digestTime 已从数据模型移除');
+
+  // 新接线两项的规范化：负数/越界要钳住，非法值回落默认
+  const clamped = await call(routes, 'POST', '/api/dsh-todos/settings/update', {
+    defaultRemindLead: -5,
+    weekStartsOn: 7,
+  });
+  assert.equal(clamped.body.value.defaultRemindLead, 0, '负数提前量应钳到 0');
+  assert.equal(clamped.body.value.weekStartsOn, 0, '非 0/1 的周起始应回落到周一');
+  const accepted = await call(routes, 'POST', '/api/dsh-todos/settings/update', {
+    defaultRemindLead: 10,
+    weekStartsOn: 1,
+  });
+  assert.equal(accepted.body.value.defaultRemindLead, 10);
+  assert.equal(accepted.body.value.weekStartsOn, 1);
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { defaultRemindLead: 0, weekStartsOn: 0 });
+});
+
+await test('周起始设置真的改变「本周」范围（weekStartsOn 接线）', async () => {
+  // 2026-10-22 是周四。周一起算 → 10-19；周日起算 → 10-18。
+  const thursday = '2026-10-22';
+  assert.equal(resolveRange('week', thursday, 0).from, '2026-10-19', '周一为起始');
+  assert.equal(resolveRange('week', thursday, 1).from, '2026-10-18', '周日为起始');
+  assert.equal(resolveRange('week', thursday, 0).to, '2026-10-25');
+  // 星期天本身：周一起算应回到上个周一
+  assert.equal(resolveRange('week', '2026-10-25', 0).from, '2026-10-19');
+  assert.equal(resolveRange('week', '2026-10-25', 1).from, '2026-10-25', '周日为起始时当天就是周首');
+
+  // 走 computeStats：同一个 state 只改设置，「本周」的区间应跟着变
+  const snap = (await call(routes, 'GET', '/api/dsh-todos/snapshot')).body.value;
+  const withMonday = computeStats({ ...snap, settings: { ...snap.settings, weekStartsOn: 0 } }, 'week', thursday);
+  const withSunday = computeStats({ ...snap, settings: { ...snap.settings, weekStartsOn: 1 } }, 'week', thursday);
+  assert.equal(withMonday.range.from, '2026-10-19');
+  assert.equal(withSunday.range.from, '2026-10-18');
+});
+
+await test('提前提醒（defaultRemindLead 接线）', async () => {
+  // 「设置更新与规范化」用例把提醒关了，这里显式打开，避免依赖执行顺序。
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { remindEnabled: true });
+  const today = localDateKey();
+  // 取一个「今天稍晚」的时刻，构造 10 分钟后的任务
+  const now = new Date();
+  const due = new Date(now.getTime() + 10 * 60_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const dueTime = `${pad(due.getHours())}:${pad(due.getMinutes())}`;
+
+  const created = await call(routes, 'POST', '/api/dsh-todos/tasks/create', {
+    title: '十分钟后的事',
+    dueDate: today,
+    dueTime,
+  });
+  const id = created.body.value.created[0].id;
+
+  // 提前量为 0：还没到点，不该提醒
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { defaultRemindLead: 0 });
+  const noLead = await call(routes, 'GET', '/api/dsh-todos/due');
+  assert.ok(
+    !noLead.body.value.items.some((t) => t.id === id),
+    '提前量 0 时，10 分钟后的任务不该提醒',
+  );
+
+  // 提前量为 30：应进入提醒窗口（但不算逾期）
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { defaultRemindLead: 30 });
+  const withLead = await call(routes, 'GET', '/api/dsh-todos/due');
+  const hit = withLead.body.value.items.find((t) => t.id === id);
+  assert.ok(hit !== undefined, '提前量 30 时应提前提醒');
+  assert.equal(hit.overdue, false, '提前提醒不应标成逾期');
+
+  await call(routes, 'POST', '/api/dsh-todos/settings/update', { defaultRemindLead: 0 });
+  await call(routes, 'POST', '/api/dsh-todos/tasks/purge', { ids: [id] });
 });
 
 await test('统计：KPI/趋势/热力图/分布口径自洽', async () => {

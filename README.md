@@ -36,7 +36,7 @@ plugin_manager install_bundle target=<本目录的绝对路径>
 > `scripts/preflight.mjs` 会替你检查前两处，但它**不会**替你重装。
 
 安装后，本 bundle 的 `cordis.patch.yml` 会插入插件行 `id: todos`
-（`config` 里可调 `weekGoal` / `remindEnabled` / `dailyDigest`）。
+（`config` 里可调 `weekGoal` / `remindEnabled` / `defaultRemindLead` / `weekStartsOn`）。
 
 ## 目录
 
