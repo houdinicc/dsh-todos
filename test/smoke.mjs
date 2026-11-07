@@ -410,16 +410,17 @@ await test('周起始设置真的改变「本周」范围（weekStartsOn 接线�
 await test('提前提醒（defaultRemindLead 接线）', async () => {
   // 「设置更新与规范化」用例把提醒关了，这里显式打开，避免依赖执行顺序。
   await call(routes, 'POST', '/api/dsh-todos/settings/update', { remindEnabled: true });
-  const today = localDateKey();
-  // 取一个「今天稍晚」的时刻，构造 10 分钟后的任务
+  // 从同一个 Date 推算日期与时刻：若「现在 + 10 分钟」跨过午夜，dueDate 必须是明天，
+  // 否则到期时刻会落在过去，用例就变成依赖运行时刻的假失败。
   const now = new Date();
   const due = new Date(now.getTime() + 10 * 60_000);
   const pad = (n) => String(n).padStart(2, '0');
+  const dueDate = `${due.getFullYear()}-${pad(due.getMonth() + 1)}-${pad(due.getDate())}`;
   const dueTime = `${pad(due.getHours())}:${pad(due.getMinutes())}`;
 
   const created = await call(routes, 'POST', '/api/dsh-todos/tasks/create', {
     title: '十分钟后的事',
-    dueDate: today,
+    dueDate,
     dueTime,
   });
   const id = created.body.value.created[0].id;

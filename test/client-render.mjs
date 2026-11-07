@@ -52,6 +52,9 @@ globalThis.KeyboardEvent = dom.window.KeyboardEvent;
 globalThis.MouseEvent = dom.window.MouseEvent;
 globalThis.FileReader = dom.window.FileReader;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// 客户端半用全局 localStorage 存视图偏好；jsdom 只提供了 window.localStorage，
+// 这里把它接到全局，才和浏览器里的行为一致。
+globalThis.localStorage = dom.window.localStorage;
 
 const registered = [];
 dom.window.__ModuleLoader__ = { load: (definition) => registered.push(definition) };
@@ -227,6 +230,7 @@ const FIXTURE = {
   today: TODAY,
   serverTime: `${TODAY}T01:00:00.000Z`,
   dataFile: '/tmp/todos.json',
+  trashRetentionDays: 30,
   settings: { weekGoal: 15, remindEnabled: true, defaultRemindLead: 0, weekStartsOn: 0 },
   projects: [{ id: 'p1', name: 'Q4汇报', color: null, order: 0, archived: false, createdAt: TODAY }],
   labels: [{ id: 'l1', name: '写作', color: null, order: 0, createdAt: TODAY }],
@@ -252,8 +256,17 @@ const FIXTURE = {
     task({ id: 't2', title: '预约体检', order: 1 }),
     task({ id: 't3', title: '整理素材', parentId: 't2', order: 2 }),
     task({ id: 't4', title: '已完成的旧事', completed: true, completedAt: `${TODAY}T02:00:00.000Z`, order: 3 }),
+    // 第三层：验证多层子任务渲染（t2 → t3 → t5）
+    task({ id: 't5', title: '孙任务', parentId: 't3', order: 5 }),
+    // 回收站里的一条：2 天前删除，剩余天数由服务端下发的保留期算出
+    task({
+      id: 't6',
+      title: '进回收站的任务',
+      order: 6,
+      deletedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    }),
   ],
-  counts: { today: 1, overdue: 0, upcoming: 0, inbox: 2, done: 1, trash: 0, active: 3, byProject: { p1: 1 }, byLabel: { l1: 1 } },
+  counts: { today: 1, overdue: 0, upcoming: 0, inbox: 3, done: 1, trash: 1, active: 4, byProject: { p1: 1 }, byLabel: { l1: 1 } },
   stats: {
     range: { key: 'last30', from: '2026-09-05', to: TODAY },
     kpi: { dueToday: 1, overdue: 1, completed: 4, created: 6, completionRate: 40, streak: 3, active: 3, prevCompleted: 2, deltaCompleted: 2 },
@@ -314,6 +327,13 @@ const root = ReactDOMClient.createRoot(document.getElementById('root'));
 const settle = async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+};
+
+// 搜索过滤走 150ms 防抖，断言前要把这个窗口等过去。
+const settleDebounce = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
   });
 };
 
@@ -540,7 +560,7 @@ if (searchInput !== null) {
     setter.call(searchInput, '季度报告');
     searchInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   });
-  await settle();
+  await settleDebounce();
   check('搜索命中标题', html().includes('交季度报告'));
   check('搜索排除未命中的任务', !html().includes('预约体检'));
   await act(async () => {
@@ -548,7 +568,7 @@ if (searchInput !== null) {
     setter.call(searchInput, '');
     searchInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   });
-  await settle();
+  await settleDebounce();
 }
 
 // 勾选完成：应发出 complete 请求
@@ -629,6 +649,97 @@ if (dashButton !== undefined) {
     // 切回默认，避免影响后续设置页断言
     const back = [...document.querySelectorAll('button.dsht-range')].find((b) => b.textContent.trim() === '近 30 天');
     if (back !== undefined) await click(back);
+  }
+}
+
+// ================= 第二批功能（0.1.5）的交互验证 =================
+
+// --- F4：三层子任务（t2 → t3 → t5）都能渲染出来
+await click(findButton('收件箱'));
+check('多层子任务：孙任务也渲染出来', html().includes('孙任务'));
+
+// --- F2：筛选条按优先级收窄
+const priorityFilter = [...document.querySelectorAll('.dsht-filters select')]
+  .find((s) => s.getAttribute('aria-label') === '按优先级筛选');
+check('存在优先级筛选下拉', priorityFilter !== undefined);
+if (priorityFilter !== undefined) {
+  const beforeFilter = fetchCalls.length;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(priorityFilter, 'p1');
+    priorityFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  });
+  await settle();
+  check('优先级筛选 p1 后只剩 p1 任务',
+    !html().includes('预约体检') && !html().includes('孙任务'));
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(priorityFilter, '');
+    priorityFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  });
+  await settle();
+  check('清除筛选后任务回来', html().includes('预约体检'));
+}
+
+// --- F3：回收站显示剩余保留天数
+await click(findButton('回收站'));
+check('回收站渲染出剩余天数', /剩余\s*28\s*天/.test(html()));
+
+// --- B：视图偏好写入 localStorage
+const savedPrefs = JSON.parse(dom.window.localStorage.getItem('dsh-todos:ui') ?? '{}');
+check('视图偏好已持久化（viewKind=trash）', savedPrefs.viewKind === 'trash');
+
+// --- E：批量多选 + 批量完成
+await click(findButton('收件箱'));
+const selectToggle = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '多选');
+check('存在「多选」开关', selectToggle !== undefined);
+if (selectToggle !== undefined) {
+  await click(selectToggle);
+  const selectableRows = [...document.querySelectorAll('.dsht-task.is-selectable')];
+  check('进入多选后任务行可选', selectableRows.length >= 2);
+  const target = selectableRows[0];
+  await act(async () => {
+    // 点行内非按钮区域（标题）触发选中
+    const title = target.querySelector('.dsht-task-title');
+    title.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  });
+  await settle();
+  check('点行后出现批量操作条', document.querySelector('.dsht-batch') !== null);
+  check('批量条显示已选数量', /已选\s*1\s*条/.test(document.querySelector('.dsht-batch')?.textContent ?? ''));
+  const beforeBatch = fetchCalls.length;
+  const completeBtn = [...document.querySelectorAll('.dsht-batch button')]
+    .find((b) => b.textContent.includes('批量完成'));
+  check('批量条有「批量完成」按钮', completeBtn !== undefined);
+  if (completeBtn !== undefined) {
+    await click(completeBtn);
+    const batchCall = fetchCalls.slice(beforeBatch).find((c) => c.url.includes('/tasks/complete'));
+    check('批量完成发出 /tasks/complete 且带 ids',
+      batchCall !== undefined && (batchCall.body?.ids ?? []).length === 1);
+    check('批量完成后退出多选', document.querySelector('.dsht-batch') === null);
+  }
+}
+
+// --- C：手动排序下 Alt+↑/↓ 触发 update
+const sortSelect = document.querySelector('select[aria-label]');
+await click(findButton('今天'));
+const sortControl = [...document.querySelectorAll('select.dsht-select')]
+  .find((s) => [...s.options].some((o) => o.value === 'manual'));
+if (sortControl !== undefined) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(sortControl, 'manual');
+    sortControl.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  });
+  await settle();
+  const draggableRow = document.querySelector('.dsht-task[tabindex="0"]');
+  check('手动排序下任务行可聚焦（键盘排序入口）', draggableRow !== null);
+  if (draggableRow !== null) {
+    const beforeKey = fetchCalls.length;
+    await act(async () => {
+      draggableRow.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }));
+    });
+    await settle();
+    check('Alt+↓ 触发排序更新调用', fetchCalls.slice(beforeKey).some((c) => c.url.includes('/tasks/update')));
   }
 }
 
